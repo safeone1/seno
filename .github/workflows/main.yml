@@ -1,0 +1,49 @@
+name: CI / DevSecOps Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  Sec:
+    name: Security Scan (SAST & Secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog-for-cicd@main
+        with:
+          path: ./
+          base: ${{ github.event.before }}
+          head: ${{ github.sha }}
+
+      - name: Semgrep Rules Manager
+        uses: iosifache/semgrep-rules-manager@release
+
+  BuildAndCheck:
+    name: Lint & Build Affected Apps
+    needs: Sec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed for Turbo to compare git commits
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Biome (All Workspaces)
+        run: bun run lint
+
+      # 🚀 TURBO MAGIC: Only builds apps that changed (or whose dependencies changed)
+      - name: Build Changed Apps
+        run: bun run build --filter=...[HEAD^1]
