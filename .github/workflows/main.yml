@@ -16,11 +16,12 @@ jobs:
           fetch-depth: 0
 
       - name: TruffleHog Secret Scan
-        uses: trufflesecurity/trufflehog-for-cicd@main
+        uses: trufflesecurity/trufflehog@main
         with:
           path: ./
           base: ${{ github.event.before }}
           head: ${{ github.sha }}
+          extra_args: --debug
 
       - name: Semgrep Rules Manager
         uses: iosifache/semgrep-rules-manager@release
