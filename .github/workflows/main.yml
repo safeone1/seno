@@ -6,32 +6,57 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   Sec:
     name: Security Scan (SAST & Secrets)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # required to upload SARIF to code scanning
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: TruffleHog Secret Scan
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@v3.96.0
         with:
           path: ./
-          base: ${{ github.event.before }}
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
           head: ${{ github.sha }}
           extra_args: --debug
 
-      - name: Semgrep Rules Manager
-        uses: iosifache/semgrep-rules-manager@release
+      # Inlined from iosifache/semgrep-rules-manager@release: that action still
+      # calls github/codeql-action/upload-sarif@v2, which is deprecated.
+      - name: Download third-party Semgrep rules
+        run: |
+          pip install semgrep-rules-manager
+          mkdir -p /tmp/rules
+          semgrep-rules-manager --dir /tmp/rules download
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep
+        env:
+          SEMGREP_RULES: /tmp/rules
+        run: semgrep ci --sarif --output=semgrep.sarif
+
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
 
   BuildAndCheck:
     name: Lint & Build Affected Apps
     needs: Sec
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Needed for Turbo to compare git commits
 
@@ -47,4 +72,4 @@ jobs:
 
       # 🚀 TURBO MAGIC: Only builds apps that changed (or whose dependencies changed)
       - name: Build Changed Apps
-        run: bun run build --filter=...[HEAD^1]
+        run: bunx turbo run build --filter=...[HEAD^1]
